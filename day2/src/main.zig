@@ -1,10 +1,10 @@
 const std = @import("std");
-const advent_of_code_2025 = @import("advent_of_code_2025");
+const day2 = @import("day2");
 
 pub fn main() !void {
     // Prints to stderr, ignoring potential errors.
     std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-    try advent_of_code_2025.bufferedPrint();
+    try day2.bufferedPrint();
 }
 
 test "simple test" {
