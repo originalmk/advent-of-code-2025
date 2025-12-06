@@ -13,9 +13,10 @@ pub fn main() !void {
     defer lineWriter.deinit();
 
     _ = try stdinReader.interface.streamDelimiter(&lineWriter.writer, '\n');
-    std.debug.print("{s}\n", .{lineWriter.written()});
 
     var rangesIter = std.mem.splitScalar(u8, lineWriter.written(), ',');
+    var result: u64 = 0;
+
     while (rangesIter.next()) |range| {
         var rangeIter = std.mem.splitScalar(u8, range, '-');
         const rangeStartStr = rangeIter.next() orelse return error.InputDataIncorrect;
@@ -23,8 +24,15 @@ pub fn main() !void {
         const rangeStart = try std.fmt.parseInt(u64, rangeStartStr, 10);
         const rangeEnd = try std.fmt.parseInt(u64, rangeEndStr, 10);
 
-        std.log.debug("{d} up to {d}", .{ rangeStart, rangeEnd });
+        var invalids = try generateInvalids(allocator, rangeStart, rangeEnd);
+        defer invalids.deinit(allocator);
+
+        for (invalids.items) |item| {
+            result += item;
+        }
     }
+
+    std.debug.print("{d}\n", .{result});
 }
 
 fn generateInvalids(allocator: std.mem.Allocator, rangeStartInclusive: u64, rangeEndInclusive: u64) !std.ArrayList(u64) {
