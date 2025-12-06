@@ -23,40 +23,55 @@ pub fn main() !void {
         const rangeEndStr = rangeIter.next() orelse return error.InputDataIncorrect;
         const rangeStart = try std.fmt.parseInt(u64, rangeStartStr, 10);
         const rangeEnd = try std.fmt.parseInt(u64, rangeEndStr, 10);
+        var invalidsGenerator = try newInvalidsGenerator(allocator, rangeStart, rangeEnd);
 
-        var invalids = try generateInvalids(allocator, rangeStart, rangeEnd);
-
-        for (invalids.items) |item| {
+        while (invalidsGenerator.next()) |item| {
             result += item;
         }
-
-        invalids.deinit(allocator);
     }
 
     std.debug.print("{d}\n", .{result});
 }
 
-fn generateInvalids(allocator: std.mem.Allocator, rangeStartInclusive: u64, rangeEndInclusive: u64) !std.ArrayList(u64) {
-    var list: std.ArrayList(u64) = .empty;
+const InvalidsGenerator = struct {
+    currentHalf: u64,
+    currentFull: u64,
+    rangeEndInclusive: u64,
 
-    var currentHalf = try getStartingHalf(allocator, rangeStartInclusive);
-    var currentFull = concatDupNumber(currentHalf);
+    fn next(self: *InvalidsGenerator) ?u64 {
+        if (self.currentFull > self.rangeEndInclusive) {
+            return null;
+        } else {
+            const toReturn = self.currentFull;
 
-    while (currentFull <= rangeEndInclusive) {
-        try list.append(allocator, currentFull);
+            self.currentHalf += 1;
+            self.currentFull = concatDupNumber(self.currentHalf);
 
-        currentHalf += 1;
-        currentFull = concatDupNumber(currentHalf);
+            return toReturn;
+        }
     }
+};
 
-    return list;
+fn newInvalidsGenerator(allocator: std.mem.Allocator, rangeStartInclusive: u64, rangeEndInclusive: u64) !InvalidsGenerator {
+    const currentHalf = try getStartingHalf(allocator, rangeStartInclusive);
+    const currentFull = concatDupNumber(currentHalf);
+
+    return InvalidsGenerator{
+        .currentHalf = currentHalf,
+        .currentFull = currentFull,
+        .rangeEndInclusive = rangeEndInclusive,
+    };
 }
 
-test "generate invalids" {
-    var invalids = try generateInvalids(std.testing.allocator, 1, 75);
-    defer invalids.deinit(std.testing.allocator);
-
-    try expect(std.mem.eql(u64, invalids.items, &[_]u64{ 11, 22, 33, 44, 55, 66 }));
+test "invalids generator" {
+    var generator = try newInvalidsGenerator(std.testing.allocator, 1, 75);
+    try expect(generator.next().? == 11);
+    try expect(generator.next().? == 22);
+    try expect(generator.next().? == 33);
+    try expect(generator.next().? == 44);
+    try expect(generator.next().? == 55);
+    try expect(generator.next().? == 66);
+    try expect(generator.next() == null);
 }
 
 fn getStartingHalf(allocator: std.mem.Allocator, startFrom: u64) !u64 {
