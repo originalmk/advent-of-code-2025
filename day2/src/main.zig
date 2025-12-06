@@ -25,11 +25,12 @@ pub fn main() !void {
         const rangeEnd = try std.fmt.parseInt(u64, rangeEndStr, 10);
 
         var invalids = try generateInvalids(allocator, rangeStart, rangeEnd);
-        defer invalids.deinit(allocator);
 
         for (invalids.items) |item| {
             result += item;
         }
+
+        invalids.deinit(allocator);
     }
 
     std.debug.print("{d}\n", .{result});
