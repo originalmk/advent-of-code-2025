@@ -27,16 +27,27 @@ pub fn main() !void {
     }
 }
 
-fn generateInvalids(allocator: std.mem.Allocator, rangeStartInclusive: u64, rangeEndInclusive: u64) !void {
+fn generateInvalids(allocator: std.mem.Allocator, rangeStartInclusive: u64, rangeEndInclusive: u64) !std.ArrayList(u64) {
     var list: std.ArrayList(u64) = .empty;
-    defer list.deinit(allocator);
 
-    try list.append(allocator, rangeStartInclusive);
-    try list.append(allocator, rangeEndInclusive);
+    var currentHalf = try getStartingHalf(allocator, rangeStartInclusive);
+    var currentFull = concatDupNumber(currentHalf);
+
+    while (currentFull <= rangeEndInclusive) {
+        try list.append(allocator, currentFull);
+
+        currentHalf += 1;
+        currentFull = concatDupNumber(currentHalf);
+    }
+
+    return list;
 }
 
 test "generate invalids" {
-    try generateInvalids(std.testing.allocator, 0, 10);
+    var invalids = try generateInvalids(std.testing.allocator, 1, 75);
+    defer invalids.deinit(std.testing.allocator);
+
+    try expect(std.mem.eql(u64, invalids.items, &[_]u64{ 11, 22, 33, 44, 55, 66 }));
 }
 
 fn getStartingHalf(allocator: std.mem.Allocator, startFrom: u64) !u64 {
