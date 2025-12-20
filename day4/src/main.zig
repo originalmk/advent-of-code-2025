@@ -59,15 +59,14 @@ const CircularWriteBuffer = struct {
         _ = try writer.write(p);
 
         for (0..self.cap) |i| {
-            const element = try self.getRow(i);
+            const maybeElement = self.getRow(i);
 
-            if (element == null) {
-                var pBuf: [200]u8 = undefined;
-                _ = try std.fmt.bufPrint(&pBuf, "{d}>> ~empty~", .{i});
-            } else {
-                const pel = try std.fmt.allocPrint(self.allocator, "{d}>> {s}\n", .{ i, element.? });
+            if (maybeElement) |element| {
+                const pel = try std.fmt.allocPrint(self.allocator, "{d}>> {s}\n", .{ i, element });
                 defer self.allocator.free(pel);
                 _ = try writer.write(pel);
+            } else |_| {
+                _ = try writer.print("{d}>> ~empty~\n", .{i});
             }
         }
     }
@@ -134,17 +133,30 @@ pub fn main() !void {
     var cBuf = try CircularWriteBuffer.init(allocator, 3);
     defer cBuf.deinit();
 
+    var i: usize = 0;
+    while (i < 3) {
+        const line = try readLine(allocator, &stdinReader.interface);
+        defer allocator.free(line);
+        try cBuf.pushAlloc(line);
+        i += 1;
+    }
+
+    var result: u64 = 0;
+    result += try getRowMovableCount(cBuf, 0, '@', true, false);
+
     while (true) {
+        result += try getRowMovableCount(cBuf, 1, '@', false, false);
         const line = readLine(allocator, &stdinReader.interface) catch break;
         defer allocator.free(line);
-
         try cBuf.pushAlloc(line);
     }
+
+    result += try getRowMovableCount(cBuf, 2, '@', false, true);
 
     var stdoutWriterBuffer: [100]u8 = undefined;
     var stdoutWriter = std.fs.File.stdout().writer(&stdoutWriterBuffer);
 
-    try cBuf.print(&stdoutWriter.interface);
+    try stdoutWriter.interface.print("Result: {d}\n", .{result});
     try stdoutWriter.interface.flush();
 }
 
@@ -157,4 +169,142 @@ fn readLine(allocator: std.mem.Allocator, stdinReader: *std.Io.Reader) ![]u8 {
     stdinReader.toss(1);
 
     return line;
+}
+
+// Assumption: row length must be at least 2 chars
+fn getRowMovableCount(
+    cBuf: CircularWriteBuffer,
+    rowIdx: usize,
+    comptime adjChar: u8,
+    comptime isTop: bool,
+    comptime isBottom: bool,
+) !u64 {
+    var result: u64 = 0;
+    const row = try cBuf.getRow(rowIdx);
+    const rowLen = row.len;
+
+    if (row[0] == '@') {
+        const adjs = try getElemAdjacentsCount(cBuf, rowIdx, 0, adjChar, true, isTop, false, isBottom);
+        if (adjs < 4) result += 1;
+    }
+
+    if (row[rowLen - 1] == '@') {
+        const adjs = try getElemAdjacentsCount(cBuf, rowIdx, rowLen - 1, adjChar, false, isTop, true, isBottom);
+        if (adjs < 4) result += 1;
+    }
+
+    var i: usize = 1;
+    while (i < rowLen - 1) : (i += 1) {
+        if (row[i] != '@') continue;
+
+        const adjs = try getElemAdjacentsCount(cBuf, rowIdx, i, adjChar, false, isTop, false, isBottom);
+        if (adjs < 4) result += 1;
+    }
+
+    return result;
+}
+
+test "get row movable count" {
+    var cBuf = try CircularWriteBuffer.init(std.testing.allocator, 3);
+    defer cBuf.deinit();
+
+    try cBuf.pushAlloc(&[_]u8{ '@', '.', '.' });
+    try cBuf.pushAlloc(&[_]u8{ '@', '@', '.' });
+    try cBuf.pushAlloc(&[_]u8{ '@', '.', '.' });
+
+    try expect(try getRowMovableCount(cBuf, 0, '@', true, false) == 1);
+    try expect(try getRowMovableCount(cBuf, 1, '@', false, false) == 2);
+}
+
+fn getElemAdjacentsCount(
+    cBuf: CircularWriteBuffer,
+    rowIdx: usize,
+    colIdx: usize,
+    comptime adjChar: u8,
+    comptime isLeft: bool,
+    comptime isTop: bool,
+    comptime isRight: bool,
+    comptime isBottom: bool,
+) !u64 {
+    var result: u64 = 0;
+
+    // Y..
+    // .$.
+    // ...
+    if (!isLeft and !isTop) {
+        const c = try cBuf.get(rowIdx - 1, colIdx - 1);
+        if (c == adjChar) result += 1;
+    }
+
+    // .Y.
+    // .$.
+    // ...
+    if (!isTop) {
+        const c = try cBuf.get(rowIdx - 1, colIdx);
+        if (c == adjChar) result += 1;
+    }
+
+    // ..Y
+    // .$.
+    // ...
+    if (!isRight and !isTop) {
+        const c = try cBuf.get(rowIdx - 1, colIdx + 1);
+        if (c == adjChar) result += 1;
+    }
+
+    // ...
+    // Y$.
+    // ...
+    if (!isLeft) {
+        const c = try cBuf.get(rowIdx, colIdx - 1);
+        if (c == adjChar) result += 1;
+    }
+
+    // ...
+    // .$Y
+    // ...
+    if (!isRight) {
+        const c = try cBuf.get(rowIdx, colIdx + 1);
+        if (c == adjChar) result += 1;
+    }
+
+    // ...
+    // .$.
+    // Y..
+    if (!isLeft and !isBottom) {
+        const c = try cBuf.get(rowIdx + 1, colIdx - 1);
+        if (c == adjChar) result += 1;
+    }
+
+    // ...
+    // .$.
+    // .Y.
+    if (!isBottom) {
+        const c = try cBuf.get(rowIdx + 1, colIdx);
+        if (c == adjChar) result += 1;
+    }
+
+    // ...
+    // .$.
+    // ..Y
+    if (!isRight and !isBottom) {
+        const c = try cBuf.get(rowIdx + 1, colIdx + 1);
+        if (c == adjChar) result += 1;
+    }
+
+    return result;
+}
+
+test "get elem adjacents count" {
+    var cBuf = try CircularWriteBuffer.init(std.testing.allocator, 3);
+    defer cBuf.deinit();
+
+    try cBuf.pushAlloc(&[_]u8{ '@', '.', '.' });
+    try cBuf.pushAlloc(&[_]u8{ '@', '@', '.' });
+    try cBuf.pushAlloc(&[_]u8{ '@', '.', '.' });
+
+    try expect(try getElemAdjacentsCount(cBuf, 0, 0, '@', true, true, false, false) == 2);
+    try expect(try getElemAdjacentsCount(cBuf, 1, 0, '@', true, false, false, false) == 3);
+    try expect(try getElemAdjacentsCount(cBuf, 1, 1, '@', false, false, false, false) == 3);
+    try expect(try getElemAdjacentsCount(cBuf, 2, 0, '@', true, false, false, true) == 2);
 }
